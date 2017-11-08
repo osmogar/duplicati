@@ -240,36 +240,74 @@ namespace Duplicati.Library.Backend
         {
             int offset = 0;
             int count = FILE_LIST_PAGE_SIZE;
+            int numFiles = 0;
+            int filesOk = 0;
+            int filesRepeated = 0;
+            int iteration = 0;
 
             var files = new List<IFileEntry>();
 
             m_fileidCache.Clear();
 
-            while(count == FILE_LIST_PAGE_SIZE)
+            do
             {
-                var url = string.Format("{0}/{1}?access_token={2}&limit={3}&offset={4}", WLID_SERVER, string.Format(FOLDER_TEMPLATE, FolderID), Library.Utility.Uri.UrlEncode(m_oauth.AccessToken), FILE_LIST_PAGE_SIZE, offset);
-                var res = m_oauth.GetJSONData<WLID_DataItem>(url);
 
-                if (res != null && res.data != null)
+                while (count == FILE_LIST_PAGE_SIZE)
                 {
-                    count = res.data.Length;
-                    foreach(var r in res.data)
+                    var url = string.Format("{0}/{1}?access_token={2}&limit={3}&offset={4}", WLID_SERVER, string.Format(FOLDER_TEMPLATE, FolderID), Library.Utility.Uri.UrlEncode(m_oauth.AccessToken), FILE_LIST_PAGE_SIZE, offset);
+                    var res = m_oauth.GetJSONData<WLID_DataItem>(url);
+
+                    if (res != null && res.data != null)
                     {
-                        m_fileidCache.Add(r.name, r.id);
+                        count = res.data.Length;
 
-                        var fe = new FileEntry(r.name, r.size, r.updated_time, r.updated_time);
-                        fe.IsFolder = string.Equals(r.type, "folder", StringComparison.InvariantCultureIgnoreCase);
-                        files.Add(fe);
+                        // log
+                        Console.WriteLine("Iteration: {0:D} Offset: {1:D} Count: {2:D} TotalOK: {3:D} TotalRep: {4:D} TotalFiles: {5:D}", iteration, offset, count, filesOk, filesRepeated, numFiles);
+                        //System.IO.File.AppendAllText(@"/tmp/onedrive_duplicati.log", "Iteration: " + iteration + " Offset: " + offset + " Count: " + count + " TotalOK: " + filesOk + " TotalRep: " + filesRepeated + " TotalFiles: " + numFiles + "\n");
+
+                        foreach (var r in res.data)
+                        {
+
+                            if (m_fileidCache.ContainsKey(r.name))
+                            {
+                                filesRepeated++;
+                            }
+                            else
+                            {
+                                m_fileidCache.Add(r.name, r.id);
+
+                                var fe = new FileEntry(r.name, r.size, r.updated_time, r.updated_time);
+                                fe.IsFolder = string.Equals(r.type, "folder", StringComparison.InvariantCultureIgnoreCase);
+                                files.Add(fe);
+
+                                filesOk++;
+                            }
+                        }
                     }
+                    else
+                    {
+                        count = 0;
+                    }
+
+                    if (iteration != 0 && filesOk == numFiles) return files;
+
+                    offset += count;
+
                 }
-                else
+
+                // Save total number of files in the first iteration
+                if (iteration == 0)
                 {
-                    count = 0;
+                    numFiles = offset;
                 }
 
-                offset += count;
+                filesRepeated = 0;
+                iteration++;
 
+                offset = 0;
+                count = FILE_LIST_PAGE_SIZE;
             }
+            while (filesOk != numFiles);
 
             return files;
         }
